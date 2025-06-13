@@ -3,7 +3,7 @@ name: Build, Package and Release macOS Binary with Changelog
 on:
   push:
     tags:
-      - 'v*.*.*'  # 例如 v1.0.0
+      - 'v*.*.*'
 
 jobs:
   release:
@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # 为了获取完整提交历史生成 changelog
+          fetch-depth: 0  # 获取完整提交历史用于 changelog
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -22,7 +22,7 @@ jobs:
 
       - name: Build macOS executable
         run: |
-          go build -o ipget-macos ./main.go
+          go build -o ipget-macos main.go
 
       - name: Package binary into tar.gz
         run: |
@@ -31,30 +31,37 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # 生成自上一个 tag 到当前 tag 的提交日志，格式简单
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
-          echo "Previous tag: $PREV_TAG"
           echo "## Changelog" > CHANGELOG.md
-          git log ${PREV_TAG}..${GITHUB_REF#refs/tags/} --pretty=format:"- %s (%an)" >> CHANGELOG.md
+
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "Previous tag: $PREV_TAG"
+
+          if [ -n "$PREV_TAG" ]; then
+            git log ${PREV_TAG}..${GITHUB_REF#refs/tags/} --pretty=format:"- %s (%an)" >> CHANGELOG.md
+          else
+            echo "- Initial release" >> CHANGELOG.md
+          fi
+
           echo "CHANGELOG.md content:"
           cat CHANGELOG.md
-          # 把 changelog 内容导出到输出变量
-          echo "::set-output name=body::$(cat CHANGELOG.md)"
+
+          # 输出 changelog 到 GITHUB_OUTPUT
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat CHANGELOG.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: ${{ steps.changelog.outputs.body }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
           files: ipget-macos.tar.gz
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
