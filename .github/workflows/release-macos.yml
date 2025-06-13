@@ -56,12 +56,10 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: ${{ steps.changelog.outputs.body }}
-        env:
           token: ${{ secrets.GH_TOKEN }}
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
           files: ipget-macos.tar.gz
-        env:
           token: ${{ secrets.GH_TOKEN }}
