@@ -6,7 +6,7 @@ on:
       - 'v*.*.*'
 
 env:
-  TAP_REPO: StarkChristmas/homebrew-ipget
+  TAP_REPO: StarkChristmas/homebrew-ip
 
 jobs:
   release:
@@ -33,11 +33,11 @@ jobs:
         run: |
           mkdir dist
 
-          GOOS=darwin GOARCH=arm64 go build -o dist/ipget_arm64 main.go
-          tar -czvf dist/ipget_macos_${VERSION}_arm64.tar.gz -C dist ipget_arm64
+          GOOS=darwin GOARCH=arm64 go build -o dist/ip_arm64 main.go
+          tar -czvf dist/ip_macos_${VERSION}_arm64.tar.gz -C dist ip_arm64
 
-          GOOS=darwin GOARCH=amd64 go build -o dist/ipget_x86_64 main.go
-          tar -czvf dist/ipget_macos_${VERSION}_x86_64.tar.gz -C dist ipget_x86_64
+          GOOS=darwin GOARCH=amd64 go build -o dist/ip_x86_64 main.go
+          tar -czvf dist/ip_macos_${VERSION}_x86_64.tar.gz -C dist ip_x86_64
 
       - name: Generate changelog with download links
         id: changelog
@@ -53,8 +53,8 @@ jobs:
           echo "" >> CHANGELOG.md
           echo "| 平台 | 架构 | 下载链接 |" >> CHANGELOG.md
           echo "|------|------|-----------|" >> CHANGELOG.md
-          echo "| macOS | arm64 | [ipget_macos_${VERSION}_arm64.tar.gz](https://github.com/StarkChristmas/ipget/releases/download/${VERSION}/ipget_macos_${VERSION}_arm64.tar.gz) |" >> CHANGELOG.md
-          echo "| macOS | x86_64 | [ipget_macos_${VERSION}_x86_64.tar.gz](https://github.com/StarkChristmas/ipget/releases/download/${VERSION}/ipget_macos_${VERSION}_x86_64.tar.gz) |" >> CHANGELOG.md
+          echo "| macOS | arm64 | [ip_macos_${VERSION}_arm64.tar.gz](https://github.com/StarkChristmas/ip/releases/download/${VERSION}/ip_macos_${VERSION}_arm64.tar.gz) |" >> CHANGELOG.md
+          echo "| macOS | x86_64 | [ip_macos_${VERSION}_x86_64.tar.gz](https://github.com/StarkChristmas/ip/releases/download/${VERSION}/ip_macos_${VERSION}_x86_64.tar.gz) |" >> CHANGELOG.md
 
           echo "body<<EOF" >> $GITHUB_OUTPUT
           cat CHANGELOG.md >> $GITHUB_OUTPUT
@@ -72,6 +72,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            dist/ipget_macos_${{ env.VERSION }}_arm64.tar.gz
-            dist/ipget_macos_${{ env.VERSION }}_x86_64.tar.gz
+            dist/ip_macos_${{ env.VERSION }}_arm64.tar.gz
+            dist/ip_macos_${{ env.VERSION }}_x86_64.tar.gz
           token: ${{ secrets.GH_TOKEN }}

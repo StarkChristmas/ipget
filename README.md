@@ -21,7 +21,7 @@ IPGet is a lightweight command-line utility designed to simplify the process of 
 
 This project is available on Homebrew. You can easily install it using:
 ```bash
-brew install ipget
+brew install ip
 ```
 
 > Note: The package name on Homebrew is 'ipget' to avoid potential naming conflicts with other packages.
@@ -66,12 +66,12 @@ Move to `/usr/local/bin` and make it executable:
 
 For Apple Silicon:
 ```bash
-mv ipget_arm64 /usr/local/bin/ip && chmod +x /usr/local/bin/ip
+mv ip_arm64 /usr/local/bin/ip && chmod +x /usr/local/bin/ip
 ```
 
 For Intel:
 ```bash
-mv ipget_x86_64 /usr/local/bin/ip && chmod +x /usr/local/bin/ip
+mv ip_x86_64 /usr/local/bin/ip && chmod +x /usr/local/bin/ip
 ```
 
 ## Usage
