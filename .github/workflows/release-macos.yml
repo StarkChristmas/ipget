@@ -13,39 +13,47 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # 获取完整提交历史用于 changelog
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.18'
 
-      - name: Build macOS executable
-        run: |
-          go build -o ipget-macos main.go
+      - name: Extract version from tag
+        id: vars
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      - name: Package binary into tar.gz
+      - name: Build for arm64 and x86_64
         run: |
-          tar czvf ipget-macos.tar.gz ipget-macos
+          mkdir dist
+          # 构建 arm64
+          GOOS=darwin GOARCH=arm64 go build -o dist/ipget_arm64 main.go
+          tar -czvf dist/ipget_macos_${VERSION}_arm64.tar.gz -C dist ipget_arm64
 
-      - name: Generate changelog
+          # 构建 x86_64
+          GOOS=darwin GOARCH=amd64 go build -o dist/ipget_x86_64 main.go
+          tar -czvf dist/ipget_macos_${VERSION}_x86_64.tar.gz -C dist ipget_x86_64
+
+      - name: Generate changelog with table
         id: changelog
         run: |
           echo "## Changelog" > CHANGELOG.md
-
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          echo "Previous tag: $PREV_TAG"
-
           if [ -n "$PREV_TAG" ]; then
             git log ${PREV_TAG}..${GITHUB_REF#refs/tags/} --pretty=format:"- %s (%an)" >> CHANGELOG.md
           else
             echo "- Initial release" >> CHANGELOG.md
           fi
 
-          echo "CHANGELOG.md content:"
+          echo "" >> CHANGELOG.md
+          echo "| 平台 | 架构 | 文件名 |" >> CHANGELOG.md
+          echo "|------|------|---------|" >> CHANGELOG.md
+          echo "| macOS | arm64 | ipget_macos_${VERSION}_arm64.tar.gz |" >> CHANGELOG.md
+          echo "| macOS | x86_64 | ipget_macos_${VERSION}_x86_64.tar.gz |" >> CHANGELOG.md
+
           cat CHANGELOG.md
 
-          # 输出 changelog 到 GITHUB_OUTPUT
           echo "body<<EOF" >> $GITHUB_OUTPUT
           cat CHANGELOG.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -58,8 +66,10 @@ jobs:
           body: ${{ steps.changelog.outputs.body }}
           token: ${{ secrets.GH_TOKEN }}
 
-      - name: Upload Release Asset
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
-          files: ipget-macos.tar.gz
+          files: |
+            dist/ipget_macos_${{ env.VERSION }}_arm64.tar.gz
+            dist/ipget_macos_${{ env.VERSION }}_x86_64.tar.gz
           token: ${{ secrets.GH_TOKEN }}
