@@ -4,16 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/liushuochen/gotable"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/liushuochen/gotable"
 )
 
+// IPInfo 存储从ipinfo.io获取的公共IP信息
 type IPInfo struct {
 	IP       string `json:"ip"`
 	City     string `json:"city"`
@@ -25,6 +27,7 @@ type IPInfo struct {
 	Readme   string `json:"readme"`
 }
 
+// NetworkSetup 存储网络接口的详细信息
 type NetworkSetup struct {
 	NetworkService  string `json:"network_service"`
 	ConfigureMethod string `json:"configure_method"`
@@ -37,117 +40,191 @@ type NetworkSetup struct {
 	EthernetAddress string `json:"ethernet_address"`
 }
 
-type NetworkDetailsInfo struct {
-	PublicIP     string         `json:"public_ip"`
-	City         string         `json:"city"`
-	NetworkSetup []NetworkSetup `json:"network_service"`
+// 错误信息结构体
+type ErrorMessages struct {
+	OSNotSupported       string
+	RequestFailed        string
+	ReadResponseFailed   string
+	ParseJSONFailed      string
+	CreateTableFailed    string
+	ExecuteCommandFailed string
+	GetNetworkInfoFailed string
+}
+
+// 根据系统语言环境获取错误信息
+func getErrorMessages() ErrorMessages {
+	lang := os.Getenv("LANG")
+	if strings.HasPrefix(lang, "zh") {
+		return ErrorMessages{
+			OSNotSupported:       "仅支持macOS系统",
+			RequestFailed:        "请求失败: %w",
+			ReadResponseFailed:   "读取响应失败: %w",
+			ParseJSONFailed:      "解析JSON失败: %w",
+			CreateTableFailed:    "创建表格失败: %w",
+			ExecuteCommandFailed: "执行命令失败: %w",
+			GetNetworkInfoFailed: "获取网络信息失败: %w",
+		}
+	}
+	return ErrorMessages{
+		OSNotSupported:       "Only macOS is supported",
+		RequestFailed:        "Request failed: %w",
+		ReadResponseFailed:   "Failed to read response: %w",
+		ParseJSONFailed:      "Failed to parse JSON: %w",
+		CreateTableFailed:    "Failed to create table: %w",
+		ExecuteCommandFailed: "Failed to execute command: %w",
+		GetNetworkInfoFailed: "Failed to get network info: %w",
+	}
 }
 
 func main() {
-	CheckOS()
-	IP, City := GetPublic()
-	ActiveNetworkInterface := GetNetworkServices()
-	var strSlice []string
-	for _, activeNetworkInterface := range ActiveNetworkInterface {
-		info := GetNetworkServiceInfo(activeNetworkInterface)
-		NetworkInfo := "NetworkName: " + activeNetworkInterface + "\n" + info
-		strSlice = append(strSlice, NetworkInfo)
-
-	}
-	result := strings.Join(strSlice, " ")
-
-	setups := parseNetworkData(result)
-
-	jsonData, err := json.MarshalIndent(setups, "", "  ")
-	if err != nil {
-		fmt.Println("Error serializing to JSON:", err)
-		return
-	}
-
-	var networkInterfaces []NetworkSetup
-
-	if err := json.Unmarshal(jsonData, &networkInterfaces); err != nil {
-		log.Fatalf("Error unmarshaling JSON: %v", err)
-	}
-
-	updatedConfig := NetworkDetailsInfo{
-		PublicIP:     IP,
-		City:         City,
-		NetworkSetup: setups,
-	}
-
-	table, err := gotable.Create("Network Service", "Local IPv4 Address", "Public IP", "City")
-	if err != nil {
-		log.Fatalf("Create table failed: %v", err)
-	}
-	for _, ni := range updatedConfig.NetworkSetup {
-		if ni.EthernetAddress != "(null)" && ni.EthernetAddress != "" {
-			table.AddRow([]string{
-				ni.NetworkService,
-				ni.IPAddress,
-				IP,
-				City,
-			})
+	if err := run(); err != nil {
+		lang := os.Getenv("LANG")
+		if strings.HasPrefix(lang, "zh") {
+			log.Fatalf("程序执行失败: %v", err)
+		} else {
+			log.Fatalf("Program execution failed: %v", err)
 		}
+	}
+}
 
+// run 是主程序的入口函数，处理所有主要逻辑
+func run() error {
+	errors := getErrorMessages()
+
+	if err := checkOS(); err != nil {
+		return fmt.Errorf(errors.OSNotSupported)
 	}
-	fmt.Println(table)
+
+	ip, city, err := getPublicIP()
+	if err != nil {
+		return fmt.Errorf(errors.RequestFailed, err)
+	}
+
+	networkInterfaces, err := getActiveNetworkInterfaces()
+	if err != nil {
+		return fmt.Errorf(errors.GetNetworkInfoFailed, err)
+	}
+
+	if err := displayNetworkInfo(networkInterfaces, ip, city); err != nil {
+		return fmt.Errorf(errors.CreateTableFailed, err)
+	}
+
+	return nil
 }
-func CheckOS() {
+
+// checkOS 检查操作系统是否为macOS
+func checkOS() error {
 	if runtime.GOOS != "darwin" {
-		fmt.Println("[E] ONLY SUPPORTS MACOS, ABOUT TO EXIT......")
-		os.Exit(1)
+		return fmt.Errorf(getErrorMessages().OSNotSupported)
 	}
+	return nil
 }
-func GetNetworkServices() []string {
+
+// getPublicIP 获取公共IP地址和城市信息
+func getPublicIP() (string, string, error) {
+	errors := getErrorMessages()
+	resp, err := http.Get("http://ipinfo.io")
+	if err != nil {
+		return "", "", fmt.Errorf(errors.RequestFailed, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", fmt.Errorf(errors.ReadResponseFailed, err)
+	}
+
+	var ipInfo IPInfo
+	if err := json.Unmarshal(body, &ipInfo); err != nil {
+		return "", "", fmt.Errorf(errors.ParseJSONFailed, err)
+	}
+
+	return ipInfo.IP, ipInfo.City, nil
+}
+
+// getActiveNetworkInterfaces 获取活动的网络接口信息
+func getActiveNetworkInterfaces() ([]NetworkSetup, error) {
+	services, err := getNetworkServices()
+	if err != nil {
+		return nil, err
+	}
+
+	var networkInfo []string
+	for _, service := range services {
+		info, err := getNetworkServiceInfo(service)
+		if err != nil {
+			return nil, err
+		}
+		networkInfo = append(networkInfo, fmt.Sprintf("NetworkName: %s\n%s", service, info))
+	}
+
+	return parseNetworkData(strings.Join(networkInfo, " ")), nil
+}
+
+// getNetworkServices 获取所有网络服务
+func getNetworkServices() ([]string, error) {
+	errors := getErrorMessages()
 	cmd := exec.Command("networksetup", "-listallnetworkservices")
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Run()
-	ActiveNetworkInterface := strings.Split(out.String(), "\n")
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf(errors.ExecuteCommandFailed, err)
+	}
+
+	services := strings.Split(out.String(), "\n")
 	var result []string
-	for _, service := range ActiveNetworkInterface {
+	for _, service := range services {
 		if service != "" && !strings.HasPrefix(service, "*") {
 			result = append(result, service)
 		}
 	}
-	currentResult := filterString(result, "An asterisk (*) denotes that a network service is disabled.")
-	return currentResult
+
+	return filterString(result, "An asterisk (*) denotes that a network service is disabled."), nil
 }
 
-func GetNetworkServiceInfo(service string) string {
+// getNetworkServiceInfo 获取指定网络服务的详细信息
+func getNetworkServiceInfo(service string) (string, error) {
+	errors := getErrorMessages()
 	cmd := exec.Command("networksetup", "-getinfo", service)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Run()
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf(errors.ExecuteCommandFailed, err)
+	}
 
 	output := out.String()
+	output = strings.ReplaceAll(output, "An asterisk (*) denotes that a network service is disabled. is not a recognized network service.", "")
+	output = strings.ReplaceAll(output, "** Error: The parameters were not valid.", "")
 
-	excludeUseless := strings.Replace(output, "An asterisk (*) denotes that a network service is disabled. is not a recognized network service.", "", -1)
-	excludeUseless1 := strings.Replace(excludeUseless, "** Error: The parameters were not valid.", "", -1)
-	return excludeUseless1
-}
-func GetPublic() (string, string) {
-	resp, err := http.Get("http://ipinfo.io")
-	if err != nil {
-		fmt.Println("Error sending request:", err)
-		return "", ""
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		return "", ""
-	}
-	var ipInfo IPInfo
-	err = json.Unmarshal(body, &ipInfo)
-	if err != nil {
-		fmt.Println("Error parsing JSON response:", err)
-		return "", ""
-	}
-	return ipInfo.IP, ipInfo.City
+	return output, nil
 }
 
+// displayNetworkInfo 显示网络信息表格
+func displayNetworkInfo(networks []NetworkSetup, publicIP, city string) error {
+	errors := getErrorMessages()
+	table, err := gotable.Create("Network Service", "Local IPv4 Address", "Public IP", "City")
+	if err != nil {
+		return fmt.Errorf(errors.CreateTableFailed, err)
+	}
+
+	for _, ni := range networks {
+		if ni.EthernetAddress != "(null)" && ni.EthernetAddress != "" && ni.IPAddress != "" {
+			table.AddRow([]string{
+				ni.NetworkService,
+				ni.IPAddress,
+				publicIP,
+				city,
+			})
+		}
+	}
+
+	fmt.Println(table)
+	return nil
+}
+
+// parseNetworkData 解析网络数据字符串为NetworkSetup结构体切片
 func parseNetworkData(data string) []NetworkSetup {
 	var networks []NetworkSetup
 	lines := strings.Split(data, "\n")
@@ -155,32 +232,34 @@ func parseNetworkData(data string) []NetworkSetup {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "NetworkName:") {
+		switch {
+		case strings.HasPrefix(line, "NetworkName:"):
 			if currentNetwork.NetworkService != "" {
 				networks = append(networks, currentNetwork)
 			}
 			currentNetwork = NetworkSetup{}
 			currentNetwork.NetworkService = strings.TrimSpace(line[len("NetworkName: "):])
-		} else if line == "DHCP Configuration" || line == "Manual Configuration" {
+		case line == "DHCP Configuration" || line == "Manual Configuration":
 			currentNetwork.ConfigureMethod = line
-		} else if strings.HasPrefix(line, "IP address:") {
+		case strings.HasPrefix(line, "IP address:"):
 			currentNetwork.IPAddress = strings.TrimSpace(line[len("IP address: "):])
-		} else if strings.HasPrefix(line, "Subnet mask:") {
+		case strings.HasPrefix(line, "Subnet mask:"):
 			currentNetwork.SubnetMask = strings.TrimSpace(line[len("Subnet mask: "):])
-		} else if strings.HasPrefix(line, "Router:") {
+		case strings.HasPrefix(line, "Router:"):
 			currentNetwork.Router = strings.TrimSpace(line[len("Router: "):])
-		} else if strings.HasPrefix(line, "IPv6:") {
+		case strings.HasPrefix(line, "IPv6:"):
 			currentNetwork.IPv6Method = strings.TrimSpace(line[len("IPv6: "):])
-		} else if strings.HasPrefix(line, "IPv6 IP address:") {
+		case strings.HasPrefix(line, "IPv6 IP address:"):
 			currentNetwork.IPv6Address = strings.TrimSpace(line[len("IPv6 IP address: "):])
-		} else if strings.HasPrefix(line, "IPv6 Router:") {
+		case strings.HasPrefix(line, "IPv6 Router:"):
 			currentNetwork.IPv6Route = strings.TrimSpace(line[len("IPv6 Router: "):])
-		} else if strings.HasPrefix(line, "Ethernet Address:") {
+		case strings.HasPrefix(line, "Ethernet Address:"):
 			currentNetwork.EthernetAddress = strings.TrimSpace(line[len("Ethernet Address: "):])
-		} else if strings.HasPrefix(line, "Wi-Fi ID:") {
+		case strings.HasPrefix(line, "Wi-Fi ID:"):
 			currentNetwork.EthernetAddress = strings.TrimSpace(line[len("Wi-Fi ID: "):])
 		}
 	}
+
 	if currentNetwork.NetworkService != "" {
 		networks = append(networks, currentNetwork)
 	}
@@ -188,6 +267,7 @@ func parseNetworkData(data string) []NetworkSetup {
 	return networks
 }
 
+// filterString 从字符串切片中过滤掉指定的字符串
 func filterString(slice []string, toRemove string) []string {
 	var filtered []string
 	for _, str := range slice {

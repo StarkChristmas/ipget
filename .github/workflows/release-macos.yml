@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'
 
+env:
+  TAP_REPO: StarkChristmas/homebrew-ipget  # ⚠️ 替换为你自己的 Tap 仓库
+
 jobs:
   release:
     runs-on: macos-latest
@@ -20,39 +23,38 @@ jobs:
         with:
           go-version: '1.18'
 
-      - name: Extract version from tag
+      - name: Extract version
         id: vars
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          echo "TAG_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
 
       - name: Build for arm64 and x86_64
         run: |
           mkdir dist
-          # 构建 arm64
+
           GOOS=darwin GOARCH=arm64 go build -o dist/ipget_arm64 main.go
           tar -czvf dist/ipget_macos_${VERSION}_arm64.tar.gz -C dist ipget_arm64
 
-          # 构建 x86_64
           GOOS=darwin GOARCH=amd64 go build -o dist/ipget_x86_64 main.go
           tar -czvf dist/ipget_macos_${VERSION}_x86_64.tar.gz -C dist ipget_x86_64
 
-      - name: Generate changelog with table
+      - name: Generate changelog with download links
         id: changelog
         run: |
           echo "## Changelog" > CHANGELOG.md
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
-            git log ${PREV_TAG}..${GITHUB_REF#refs/tags/} --pretty=format:"- %s (%an)" >> CHANGELOG.md
+            git log ${PREV_TAG}..${VERSION} --pretty=format:"- %s (%an)" >> CHANGELOG.md
           else
             echo "- Initial release" >> CHANGELOG.md
           fi
 
           echo "" >> CHANGELOG.md
-          echo "| 平台 | 架构 | 文件名 |" >> CHANGELOG.md
-          echo "|------|------|---------|" >> CHANGELOG.md
-          echo "| macOS | arm64 | ipget_macos_${VERSION}_arm64.tar.gz |" >> CHANGELOG.md
-          echo "| macOS | x86_64 | ipget_macos_${VERSION}_x86_64.tar.gz |" >> CHANGELOG.md
-
-          cat CHANGELOG.md
+          echo "| 平台 | 架构 | 下载链接 |" >> CHANGELOG.md
+          echo "|------|------|-----------|" >> CHANGELOG.md
+          echo "| macOS | arm64 | [ipget_macos_${VERSION}_arm64.tar.gz](https://github.com/StarkChristmas/ipget/releases/download/${VERSION}/ipget_macos_${VERSION}_arm64.tar.gz) |" >> CHANGELOG.md
+          echo "| macOS | x86_64 | [ipget_macos_${VERSION}_x86_64.tar.gz](https://github.com/StarkChristmas/ipget/releases/download/${VERSION}/ipget_macos_${VERSION}_x86_64.tar.gz) |" >> CHANGELOG.md
 
           echo "body<<EOF" >> $GITHUB_OUTPUT
           cat CHANGELOG.md >> $GITHUB_OUTPUT
@@ -73,3 +75,42 @@ jobs:
             dist/ipget_macos_${{ env.VERSION }}_arm64.tar.gz
             dist/ipget_macos_${{ env.VERSION }}_x86_64.tar.gz
           token: ${{ secrets.GH_TOKEN }}
+
+      - name: Update Homebrew Tap Formula
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          git clone https://github.com/${TAP_REPO}.git tap-repo
+          cd tap-repo
+
+          FORMULA_PATH=Formula/ipget.rb
+
+          SHA256=$(shasum -a 256 ../dist/ipget_macos_${VERSION}_amd64.tar.gz | cut -d " " -f1)
+
+          cat > $FORMULA_PATH <<EOF
+  class Ipget < Formula
+  desc "Simple IP acquisition tool written in Go"
+  homepage "https://github.com/StarkChristmas/ipget"
+  url "https://github.com/StarkChristmas/ipget/archive/refs/tags/${VERSION}.tar.gz"
+  sha256 "${SHA256}"
+  license "MIT"
+
+  depends_on "go" => :build
+  depends_on :macos
+
+  def install
+  system "go", "build", *std_go_args, "./main.go"
+  end
+
+  test do
+  output = shell_output("\#{bin}/ipget 2>&1")
+  assert_match /\\d+\\.\\d+\\.\\d+\\.\\d+/, output
+  end
+  end
+  EOF
+  
+  git config user.name "GitHub Actions"
+  git config user.email "actions@github.com"
+  git add $FORMULA_PATH
+  git commit -m "Update ipget formula to ${VERSION}"
+  git push https://${TAP_GITHUB_TOKEN}@github.com/${TAP_REPO}.git HEAD:main

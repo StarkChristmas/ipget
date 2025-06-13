@@ -17,15 +17,62 @@ IPGet is a lightweight command-line utility designed to simplify the process of 
 
 ## Installation
 
-1. Download the binary file
-2. Move it to your system's binary directory:
-   ```bash
-   mv ip /usr/local/bin/
-   ```
-3. Make it executable:
-   ```bash
-   chmod +x /usr/local/bin/ip
-   ```
+### Via Homebrew (Recommended)
+
+This project is available on Homebrew. You can easily install it using:
+```bash
+brew install ipget
+```
+
+> Note: The package name on Homebrew is 'ipget' to avoid potential naming conflicts with other packages.
+
+### Build from Source
+
+Clone the repository:
+```bash
+git clone https://github.com/StarkChristmas/ipget
+```
+
+Install Go 1.24:
+```bash
+brew install go
+```
+
+Build the project:
+```bash
+cd ipget && go run -o ip ./main.go
+```
+
+Move to `/usr/local/bin` and make it executable:
+```bash
+mv ip /usr/local/bin/ && chmod +x /usr/local/bin/ip
+```
+
+### Download Pre-built Binary
+
+For Apple Silicon:
+```bash
+wget $(curl -s https://api.github.com/repos/StarkChristmas/ipget/releases/latest \
+  | jq -r '.assets[] | select(.name | test("arm64.*\\.tar\\.gz$")) | .browser_download_url')
+```
+
+For Intel:
+```bash
+wget $(curl -s https://api.github.com/repos/StarkChristmas/ipget/releases/latest \
+  | jq -r '.assets[] | select(.name | test("x86_64.*\\.tar\\.gz$")) | .browser_download_url')
+```
+
+Move to `/usr/local/bin` and make it executable:
+
+For Apple Silicon:
+```bash
+mv ipget_arm64 /usr/local/bin/ip && chmod +x /usr/local/bin/ip
+```
+
+For Intel:
+```bash
+mv ipget_x86_64 /usr/local/bin/ip && chmod +x /usr/local/bin/ip
+```
 
 ## Usage
 
