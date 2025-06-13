@@ -6,7 +6,7 @@ on:
       - 'v*.*.*'
 
 env:
-  TAP_REPO: StarkChristmas/homebrew-ipget  # ⚠️ 替换为你自己的 Tap 仓库
+  TAP_REPO: StarkChristmas/homebrew-ipget
 
 jobs:
   release:
@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.18'
+          go-version: '1.24'
 
       - name: Extract version
         id: vars
@@ -75,42 +75,3 @@ jobs:
             dist/ipget_macos_${{ env.VERSION }}_arm64.tar.gz
             dist/ipget_macos_${{ env.VERSION }}_x86_64.tar.gz
           token: ${{ secrets.GH_TOKEN }}
-
-      - name: Update Homebrew Tap Formula
-        env:
-          TAP_GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          git clone https://github.com/${TAP_REPO}.git tap-repo
-          cd tap-repo
-
-          FORMULA_PATH=Formula/ipget.rb
-
-          SHA256=$(shasum -a 256 ../dist/ipget_macos_${VERSION}_amd64.tar.gz | cut -d " " -f1)
-
-          cat > $FORMULA_PATH <<EOF
-  class Ipget < Formula
-  desc "Simple IP acquisition tool written in Go"
-  homepage "https://github.com/StarkChristmas/ipget"
-  url "https://github.com/StarkChristmas/ipget/archive/refs/tags/${VERSION}.tar.gz"
-  sha256 "${SHA256}"
-  license "MIT"
-
-  depends_on "go" => :build
-  depends_on :macos
-
-  def install
-  system "go", "build", *std_go_args, "./main.go"
-  end
-
-  test do
-  output = shell_output("\#{bin}/ipget 2>&1")
-  assert_match /\\d+\\.\\d+\\.\\d+\\.\\d+/, output
-  end
-  end
-  EOF
-  
-  git config user.name "GitHub Actions"
-  git config user.email "actions@github.com"
-  git add $FORMULA_PATH
-  git commit -m "Update ipget formula to ${VERSION}"
-  git push https://${TAP_GITHUB_TOKEN}@github.com/${TAP_REPO}.git HEAD:main
